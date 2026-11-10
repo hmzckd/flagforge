@@ -1,0 +1,7 @@
+/flagforge
+/flagforge.exe
+*.test
+*.out
+.env
+.idea/
+.vscode/
