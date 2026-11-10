@@ -18,7 +18,7 @@ func TestServeStopsCleanlyWhenContextIsCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	srv := &http.Server{Handler: httpapi.NewHandler(logger)}
+	srv := &http.Server{Handler: httpapi.NewHandler(httpapi.Deps{Logger: logger})}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

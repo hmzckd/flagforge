@@ -1,44 +1,32 @@
 package httpapi
 
 import (
-	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestHealthReturnsOK(t *testing.T) {
-	handler := NewHandler(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := send(t, newTestHandler(t), request{method: http.MethodGet, path: "/health"})
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
+	wantStatus(t, rec, http.StatusOK)
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
-	var body map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body["status"] != "ok" {
+	if body := decode[map[string]string](t, rec); body["status"] != "ok" {
 		t.Fatalf(`status field = %q, want "ok"`, body["status"])
 	}
 }
 
 func TestHealthRejectsPost(t *testing.T) {
-	handler := NewHandler(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := send(t, newTestHandler(t), request{method: http.MethodPost, path: "/health"})
+	wantStatus(t, rec, http.StatusMethodNotAllowed)
+}
 
-	req := httptest.NewRequest(http.MethodPost, "/health", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+func TestReadyWhenDatabaseIsReachable(t *testing.T) {
+	rec := send(t, newTestHandler(t), request{method: http.MethodGet, path: "/ready"})
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	wantStatus(t, rec, http.StatusOK)
+	if body := decode[map[string]string](t, rec); body["status"] != "ready" {
+		t.Fatalf(`status field = %q, want "ready"`, body["status"])
 	}
 }

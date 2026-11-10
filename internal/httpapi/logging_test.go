@@ -11,7 +11,7 @@ import (
 
 func TestEveryRequestIsLoggedWithItsStatus(t *testing.T) {
 	var logs bytes.Buffer
-	handler := NewHandler(slog.New(slog.NewJSONHandler(&logs, nil)))
+	handler := NewHandler(Deps{Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
 
 	req := httptest.NewRequest(http.MethodGet, "/does-not-exist", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), req)

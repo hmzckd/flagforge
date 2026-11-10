@@ -12,8 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/hmzckd/flagforge/internal/config"
 	"github.com/hmzckd/flagforge/internal/httpapi"
+	"github.com/hmzckd/flagforge/internal/store"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -37,13 +40,35 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("database config: %w", err)
+	}
+	defer pool.Close()
+
+	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
+	err = pool.Ping(pingCtx)
+	cancelPing()
+	if err != nil {
+		return fmt.Errorf("database is not reachable: %w", err)
+	}
+
+	if err := store.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	logger.Info("database migrated")
+
 	listener, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.Addr, err)
 	}
 
 	srv := &http.Server{
-		Handler:           httpapi.NewHandler(logger),
+		Handler: httpapi.NewHandler(httpapi.Deps{
+			Logger:    logger,
+			Store:     store.New(pool),
+			AdminKeys: cfg.AdminKeys,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
