@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/hmzckd/flagforge/eval"
 )
 
 type Flag struct {
@@ -101,6 +103,10 @@ type FlagSetting struct {
 	Environment string
 	Enabled     bool
 	UpdatedAt   time.Time
+}
+
+func (s FlagSetting) EvalFlag() eval.Flag {
+	return eval.Flag{Key: s.FlagKey, Enabled: s.Enabled}
 }
 
 type SettingChange struct {
