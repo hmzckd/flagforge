@@ -29,6 +29,9 @@ func NewHandler(deps Deps) http.Handler {
 	mux.Handle("POST /api/flags", admin(http.HandlerFunc(a.createFlag)))
 	mux.Handle("GET /api/flags", admin(http.HandlerFunc(a.listFlags)))
 	mux.Handle("GET /api/flags/{key}", admin(http.HandlerFunc(a.getFlag)))
+	mux.Handle("GET /api/flags/{key}/environments/{env}", admin(http.HandlerFunc(a.getSetting)))
+	mux.Handle("PUT /api/flags/{key}/environments/{env}", admin(http.HandlerFunc(a.putSetting)))
+	mux.Handle("GET /api/environments", admin(http.HandlerFunc(a.listEnvironments)))
 
 	return logRequests(deps.Logger, mux)
 }

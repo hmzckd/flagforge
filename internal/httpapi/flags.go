@@ -20,14 +20,23 @@ type createFlagRequest struct {
 }
 
 type flagResponse struct {
-	Key         string    `json:"key"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	Key          string                      `json:"key"`
+	Name         string                      `json:"name"`
+	Description  string                      `json:"description"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	Environments map[string]environmentState `json:"environments"`
+}
+
+type environmentState struct {
+	Enabled bool `json:"enabled"`
 }
 
 func toFlagResponse(f store.Flag) flagResponse {
-	return flagResponse{Key: f.Key, Name: f.Name, Description: f.Description, CreatedAt: f.CreatedAt}
+	envs := make(map[string]environmentState, len(f.Enabled))
+	for env, enabled := range f.Enabled {
+		envs[env] = environmentState{Enabled: enabled}
+	}
+	return flagResponse{Key: f.Key, Name: f.Name, Description: f.Description, CreatedAt: f.CreatedAt, Environments: envs}
 }
 
 func (req createFlagRequest) validate() error {
@@ -83,12 +92,8 @@ func (a *api) listFlags(w http.ResponseWriter, r *http.Request) {
 func (a *api) getFlag(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	flag, err := a.store.GetFlag(r.Context(), key)
-	if errors.Is(err, store.ErrNotFound) {
-		writeProblem(w, http.StatusNotFound, fmt.Sprintf("flag %q not found", key))
-		return
-	}
 	if err != nil {
-		a.internalError(w, r, err)
+		a.storeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toFlagResponse(flag))

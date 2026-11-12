@@ -9,11 +9,24 @@ deploying new code.
 
 **Flag**:
 A named on/off switch for one feature of a client application.
-_Avoid_: Toggle, feature switch, setting
+_Avoid_: Toggle, feature switch
 
 **Flag key**:
 The short, permanent name that application code uses to ask about a flag, such as `new-checkout`.
 _Avoid_: Flag id, flag name
+
+**Environment**:
+One place where client applications run, such as `staging` or `production`. Every flag behaves independently in each
+environment.
+_Avoid_: Stage, tier, project
+
+**Flag setting**:
+How one flag behaves in one environment. A new flag's settings are off everywhere.
+_Avoid_: Flag config, flag state
+
+**Kill switch**:
+Turning a flag off in an environment, so that every user gets the feature's old behavior at once.
+_Avoid_: Rollback, disable
 
 ### People and access
 

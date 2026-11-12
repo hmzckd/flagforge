@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/hmzckd/flagforge/internal/store"
 )
 
 type problem struct {
@@ -29,6 +31,17 @@ func writeProblem(w http.ResponseWriter, status int, detail string) {
 func (a *api) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	a.logger.Error("request failed", "method", r.Method, "path", r.URL.Path, "error", err)
 	writeProblem(w, http.StatusInternalServerError, "")
+}
+
+func (a *api) storeError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, store.ErrFlagNotFound):
+		writeProblem(w, http.StatusNotFound, fmt.Sprintf("flag %q not found", r.PathValue("key")))
+	case errors.Is(err, store.ErrEnvironmentNotFound):
+		writeProblem(w, http.StatusNotFound, fmt.Sprintf("environment %q not found", r.PathValue("env")))
+	default:
+		a.internalError(w, r, err)
+	}
 }
 
 const maxBodyBytes = 1 << 20
