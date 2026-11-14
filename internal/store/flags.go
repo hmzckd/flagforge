@@ -102,15 +102,19 @@ type FlagSetting struct {
 	FlagKey     string
 	Environment string
 	Enabled     bool
+	Rules       []eval.Rule
+	Fallthrough eval.Serve
 	UpdatedAt   time.Time
 }
 
 func (s FlagSetting) EvalFlag() eval.Flag {
-	return eval.Flag{Key: s.FlagKey, Enabled: s.Enabled}
+	return eval.Flag{Key: s.FlagKey, Enabled: s.Enabled, Rules: s.Rules, Fallthrough: s.Fallthrough}
 }
 
 type SettingChange struct {
-	Enabled bool
+	Enabled     bool
+	Rules       []eval.Rule
+	Fallthrough eval.Serve
 }
 
 func (s *Store) GetFlagSetting(ctx context.Context, flagKey, envKey string) (FlagSetting, error) {
@@ -120,9 +124,9 @@ func (s *Store) GetFlagSetting(ctx context.Context, flagKey, envKey string) (Fla
 	}
 	fs := FlagSetting{FlagKey: flagKey, Environment: envKey}
 	err = s.pool.QueryRow(ctx,
-		`SELECT enabled, updated_at FROM flag_settings WHERE flag_id = $1 AND environment_id = $2`,
+		`SELECT enabled, rules, fallthrough, updated_at FROM flag_settings WHERE flag_id = $1 AND environment_id = $2`,
 		flagID, envID,
-	).Scan(&fs.Enabled, &fs.UpdatedAt)
+	).Scan(&fs.Enabled, &fs.Rules, &fs.Fallthrough, &fs.UpdatedAt)
 	return fs, err
 }
 
@@ -134,11 +138,11 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, flagKey, envKey string, c
 			return err
 		}
 		return tx.QueryRow(ctx,
-			`UPDATE flag_settings SET enabled = $3, updated_at = now()
+			`UPDATE flag_settings SET enabled = $3, rules = $4, fallthrough = $5, updated_at = now()
 			 WHERE flag_id = $1 AND environment_id = $2
-			 RETURNING enabled, updated_at`,
-			flagID, envID, change.Enabled,
-		).Scan(&fs.Enabled, &fs.UpdatedAt)
+			 RETURNING enabled, rules, fallthrough, updated_at`,
+			flagID, envID, change.Enabled, change.Rules, change.Fallthrough,
+		).Scan(&fs.Enabled, &fs.Rules, &fs.Fallthrough, &fs.UpdatedAt)
 	})
 	if err != nil {
 		return FlagSetting{}, err

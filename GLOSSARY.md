@@ -46,6 +46,19 @@ _Avoid_: Check, lookup
 Why an evaluation produced its value: the flag was off, a rule matched, or the evaluation fell through.
 _Avoid_: Explanation, cause
 
+**Rule**:
+A list of clauses and the value to serve when all of them match a user. A setting's rules are tried in order and the
+first matching rule wins.
+_Avoid_: Condition, filter, segment
+
+**Clause**:
+One test on one attribute of a user, such as "country is one of TR, AZ".
+_Avoid_: Condition, predicate
+
+**Targeting**:
+Serving different values to different users by using rules.
+_Avoid_: Segmentation, personalisation
+
 **Fallthrough**:
 What an enabled flag serves to a user that no rule matched.
 _Avoid_: Default rule, else branch
