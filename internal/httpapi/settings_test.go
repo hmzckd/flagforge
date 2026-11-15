@@ -26,7 +26,7 @@ func TestTurningAFlagOnInStagingLeavesProductionOff(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
 
-	rec := send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/staging", `{"enabled":true}`))
+	rec := putSetting(t, h, "/api/flags/new-checkout/environments/staging", `{"enabled":true}`)
 	wantStatus(t, rec, http.StatusOK)
 	if got := decode[settingResponse](t, rec); !got.Enabled || got.Environment != "staging" || got.Flag != "new-checkout" {
 		t.Fatalf("PUT response = %+v", got)
@@ -48,9 +48,9 @@ func TestTurningAFlagOffAgain(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
 	path := "/api/flags/new-checkout/environments/production"
-	send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true}`))
+	putSetting(t, h, path, `{"enabled":true}`)
 
-	rec := send(t, h, asAdmin(http.MethodPut, path, `{"enabled":false}`))
+	rec := putSetting(t, h, path, `{"enabled":false}`)
 
 	wantStatus(t, rec, http.StatusOK)
 	if decode[settingResponse](t, rec).Enabled {
@@ -72,7 +72,9 @@ func TestSettingNotFound(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			for _, method := range []string{http.MethodGet, http.MethodPut} {
-				rec := send(t, h, asAdmin(method, tc.path, `{"enabled":true}`))
+				req := asAdmin(method, tc.path, `{"enabled":true}`)
+				req.headers = map[string]string{"If-Match": `"1"`}
+				rec := send(t, h, req)
 				p := wantProblem(t, rec, http.StatusNotFound)
 				if !strings.Contains(p.Detail, tc.want) {
 					t.Fatalf("%s detail = %q, want it to mention %s", method, p.Detail, tc.want)
@@ -92,7 +94,7 @@ func TestPutSettingRejectsInvalidInput(t *testing.T) {
 		"unknown field":   `{"enabled":true,"enabeld":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			rec := send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/staging", body))
+			rec := putSetting(t, h, "/api/flags/new-checkout/environments/staging", body)
 			wantProblem(t, rec, http.StatusBadRequest)
 		})
 	}

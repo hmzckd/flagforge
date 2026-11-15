@@ -16,6 +16,7 @@ type settingResponse struct {
 	Enabled     bool        `json:"enabled"`
 	Rules       []eval.Rule `json:"rules"`
 	Fallthrough eval.Serve  `json:"fallthrough"`
+	Version     int64       `json:"version"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
@@ -26,6 +27,7 @@ func toSettingResponse(s store.FlagSetting) settingResponse {
 		Enabled:     s.Enabled,
 		Rules:       s.Rules,
 		Fallthrough: s.Fallthrough,
+		Version:     s.Version,
 		UpdatedAt:   s.UpdatedAt,
 	}
 }
@@ -66,10 +68,17 @@ func (a *api) getSetting(w http.ResponseWriter, r *http.Request) {
 		a.storeError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", etag(setting.Version))
 	writeJSON(w, http.StatusOK, toSettingResponse(setting))
 }
 
 func (a *api) putSetting(w http.ResponseWriter, r *http.Request) {
+	expected, err := ifMatchVersion(r)
+	if err != nil {
+		writeProblem(w, http.StatusPreconditionRequired, err.Error())
+		return
+	}
+
 	var req putSettingRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeProblem(w, http.StatusBadRequest, err.Error())
@@ -81,11 +90,12 @@ func (a *api) putSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setting, err := a.store.UpdateFlagSetting(r.Context(), r.PathValue("key"), r.PathValue("env"), change)
+	setting, err := a.store.UpdateFlagSetting(r.Context(), actorFrom(r.Context()), r.PathValue("key"), r.PathValue("env"), expected, change)
 	if err != nil {
 		a.storeError(w, r, err)
 		return
 	}
+	w.Header().Set("ETag", etag(setting.Version))
 	writeJSON(w, http.StatusOK, toSettingResponse(setting))
 }
 

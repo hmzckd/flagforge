@@ -13,6 +13,7 @@ var (
 	ErrFlagNotFound        = errors.New("flag not found")
 	ErrEnvironmentNotFound = errors.New("environment not found")
 	ErrAlreadyExists       = errors.New("already exists")
+	ErrVersionMismatch     = errors.New("version mismatch")
 )
 
 type Store struct {

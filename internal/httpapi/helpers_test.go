@@ -87,3 +87,14 @@ func wantProblem(t *testing.T, rec *httptest.ResponseRecorder, status int) probl
 	}
 	return p
 }
+
+func putSetting(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	etag := send(t, h, asAdmin(http.MethodGet, path, "")).Header().Get("ETag")
+	if etag == "" {
+		etag = `"1"`
+	}
+	req := asAdmin(http.MethodPut, path, body)
+	req.headers = map[string]string{"If-Match": etag}
+	return send(t, h, req)
+}

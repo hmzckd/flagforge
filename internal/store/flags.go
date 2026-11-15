@@ -19,12 +19,12 @@ type Flag struct {
 }
 
 type NewFlag struct {
-	Key         string
-	Name        string
-	Description string
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
-func (s *Store) CreateFlag(ctx context.Context, nf NewFlag) (Flag, error) {
+func (s *Store) CreateFlag(ctx context.Context, actor string, nf NewFlag) (Flag, error) {
 	err := inTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var flagID int64
 		err := tx.QueryRow(ctx,
@@ -42,7 +42,10 @@ func (s *Store) CreateFlag(ctx context.Context, nf NewFlag) (Flag, error) {
 			`INSERT INTO flag_settings (flag_id, environment_id) SELECT $1, id FROM environments`,
 			flagID,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+		return writeAudit(ctx, tx, auditEntry{flagID: flagID, actor: actor, action: ActionFlagCreated, after: nf})
 	})
 	if err != nil {
 		return Flag{}, err
@@ -104,6 +107,7 @@ type FlagSetting struct {
 	Enabled     bool
 	Rules       []eval.Rule
 	Fallthrough eval.Serve
+	Version     int64
 	UpdatedAt   time.Time
 }
 
@@ -112,42 +116,72 @@ func (s FlagSetting) EvalFlag() eval.Flag {
 }
 
 type SettingChange struct {
-	Enabled     bool
-	Rules       []eval.Rule
-	Fallthrough eval.Serve
+	Enabled     bool        `json:"enabled"`
+	Rules       []eval.Rule `json:"rules"`
+	Fallthrough eval.Serve  `json:"fallthrough"`
 }
 
 func (s *Store) GetFlagSetting(ctx context.Context, flagKey, envKey string) (FlagSetting, error) {
-	flagID, envID, err := resolve(ctx, s.pool, flagKey, envKey)
+	return getSetting(ctx, s.pool, flagKey, envKey)
+}
+
+func getSetting(ctx context.Context, q querier, flagKey, envKey string) (FlagSetting, error) {
+	flagID, envID, err := resolve(ctx, q, flagKey, envKey)
 	if err != nil {
 		return FlagSetting{}, err
 	}
 	fs := FlagSetting{FlagKey: flagKey, Environment: envKey}
-	err = s.pool.QueryRow(ctx,
-		`SELECT enabled, rules, fallthrough, updated_at FROM flag_settings WHERE flag_id = $1 AND environment_id = $2`,
+	err = q.QueryRow(ctx,
+		`SELECT enabled, rules, fallthrough, version, updated_at
+		 FROM flag_settings WHERE flag_id = $1 AND environment_id = $2`,
 		flagID, envID,
-	).Scan(&fs.Enabled, &fs.Rules, &fs.Fallthrough, &fs.UpdatedAt)
+	).Scan(&fs.Enabled, &fs.Rules, &fs.Fallthrough, &fs.Version, &fs.UpdatedAt)
 	return fs, err
 }
 
-func (s *Store) UpdateFlagSetting(ctx context.Context, flagKey, envKey string, change SettingChange) (FlagSetting, error) {
-	fs := FlagSetting{FlagKey: flagKey, Environment: envKey}
+func (s *Store) UpdateFlagSetting(ctx context.Context, actor, flagKey, envKey string, expectedVersion int64, change SettingChange) (FlagSetting, error) {
+	updated := FlagSetting{FlagKey: flagKey, Environment: envKey}
 	err := inTx(ctx, s.pool, func(tx pgx.Tx) error {
 		flagID, envID, err := resolve(ctx, tx, flagKey, envKey)
 		if err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx,
-			`UPDATE flag_settings SET enabled = $3, rules = $4, fallthrough = $5, updated_at = now()
-			 WHERE flag_id = $1 AND environment_id = $2
-			 RETURNING enabled, rules, fallthrough, updated_at`,
-			flagID, envID, change.Enabled, change.Rules, change.Fallthrough,
-		).Scan(&fs.Enabled, &fs.Rules, &fs.Fallthrough, &fs.UpdatedAt)
+		before, err := getSetting(ctx, tx, flagKey, envKey)
+		if err != nil {
+			return err
+		}
+
+		err = tx.QueryRow(ctx,
+			`UPDATE flag_settings
+			 SET enabled = $4, rules = $5, fallthrough = $6, version = version + 1, updated_at = now()
+			 WHERE flag_id = $1 AND environment_id = $2 AND version = $3
+			 RETURNING enabled, rules, fallthrough, version, updated_at`,
+			flagID, envID, expectedVersion, change.Enabled, change.Rules, change.Fallthrough,
+		).Scan(&updated.Enabled, &updated.Rules, &updated.Fallthrough, &updated.Version, &updated.UpdatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrVersionMismatch
+		}
+		if err != nil {
+			return err
+		}
+
+		return writeAudit(ctx, tx, auditEntry{
+			flagID:        flagID,
+			environmentID: &envID,
+			actor:         actor,
+			action:        ActionSettingUpdated,
+			before:        settingDocument(before),
+			after:         settingDocument(updated),
+		})
 	})
 	if err != nil {
 		return FlagSetting{}, err
 	}
-	return fs, nil
+	return updated, nil
+}
+
+func settingDocument(s FlagSetting) SettingChange {
+	return SettingChange{Enabled: s.Enabled, Rules: s.Rules, Fallthrough: s.Fallthrough}
 }
 
 type querier interface {

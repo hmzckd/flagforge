@@ -71,6 +71,16 @@ _Avoid_: Slot, hash, shard
 What an enabled flag serves to a user that no rule matched.
 _Avoid_: Default rule, else branch
 
+### Change history
+
+**Version**:
+A counter on a flag setting that goes up by one with every change, so an admin can prove which state they edited.
+_Avoid_: Revision, generation
+
+**Audit entry**:
+A permanent record of one change to a flag: who made it, when, and the state before and after.
+_Avoid_: Log line, history item, event
+
 ### People and access
 
 **Admin**:

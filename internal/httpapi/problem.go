@@ -39,6 +39,8 @@ func (a *api) storeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, http.StatusNotFound, fmt.Sprintf("flag %q not found", r.PathValue("key")))
 	case errors.Is(err, store.ErrEnvironmentNotFound):
 		writeProblem(w, http.StatusNotFound, fmt.Sprintf("environment %q not found", r.PathValue("env")))
+	case errors.Is(err, store.ErrVersionMismatch):
+		writeProblem(w, http.StatusPreconditionFailed, "the setting was changed by someone else; GET it again and retry with the new ETag")
 	default:
 		a.internalError(w, r, err)
 	}

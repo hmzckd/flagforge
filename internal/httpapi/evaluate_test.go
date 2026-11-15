@@ -24,7 +24,7 @@ func TestEvaluateOffFlag(t *testing.T) {
 func TestEvaluateOnFlagFallsThrough(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
-	send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/staging", `{"enabled":true}`))
+	putSetting(t, h, "/api/flags/new-checkout/environments/staging", `{"enabled":true}`)
 
 	staging := send(t, h, asAdmin(http.MethodPost, "/api/environments/staging/evaluate", evaluateCheckout))
 	production := send(t, h, asAdmin(http.MethodPost, "/api/environments/production/evaluate", evaluateCheckout))

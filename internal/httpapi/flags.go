@@ -62,7 +62,7 @@ func (a *api) createFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flag, err := a.store.CreateFlag(r.Context(), store.NewFlag{Key: req.Key, Name: req.Name, Description: req.Description})
+	flag, err := a.store.CreateFlag(r.Context(), actorFrom(r.Context()), store.NewFlag{Key: req.Key, Name: req.Name, Description: req.Description})
 	if errors.Is(err, store.ErrAlreadyExists) {
 		writeProblem(w, http.StatusConflict, fmt.Sprintf("flag %q already exists", req.Key))
 		return

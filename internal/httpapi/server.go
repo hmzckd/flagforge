@@ -31,6 +31,7 @@ func NewHandler(deps Deps) http.Handler {
 	mux.Handle("GET /api/flags/{key}", admin(http.HandlerFunc(a.getFlag)))
 	mux.Handle("GET /api/flags/{key}/environments/{env}", admin(http.HandlerFunc(a.getSetting)))
 	mux.Handle("PUT /api/flags/{key}/environments/{env}", admin(http.HandlerFunc(a.putSetting)))
+	mux.Handle("GET /api/flags/{key}/audit", admin(http.HandlerFunc(a.listAudit)))
 	mux.Handle("GET /api/environments", admin(http.HandlerFunc(a.listEnvironments)))
 	mux.Handle("POST /api/environments/{env}/evaluate", admin(http.HandlerFunc(a.evaluate)))
 

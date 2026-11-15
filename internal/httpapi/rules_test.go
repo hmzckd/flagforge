@@ -26,7 +26,7 @@ func evaluateUser(t *testing.T, h http.Handler, env, user string) evaluateRespon
 func TestTargetingRuleServesTrueOnlyToMatchingUsers(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
-	wantStatus(t, send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/production", turkeyOnly)), http.StatusOK)
+	wantStatus(t, putSetting(t, h, "/api/flags/new-checkout/environments/production", turkeyOnly), http.StatusOK)
 
 	tr := evaluateUser(t, h, "production", `{"key":"u-1","attributes":{"country":"TR"}}`)
 	de := evaluateUser(t, h, "production", `{"key":"u-2","attributes":{"country":"DE"}}`)
@@ -42,7 +42,7 @@ func TestTargetingRuleServesTrueOnlyToMatchingUsers(t *testing.T) {
 func TestRulesAreStoredAndReturned(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
-	send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/production", turkeyOnly))
+	putSetting(t, h, "/api/flags/new-checkout/environments/production", turkeyOnly)
 
 	got := decode[settingResponse](t, send(t, h, asAdmin(http.MethodGet, "/api/flags/new-checkout/environments/production", "")))
 
@@ -55,9 +55,9 @@ func TestPutWithoutRulesClearsThemAndFallsThroughToTrue(t *testing.T) {
 	h := newTestHandler(t)
 	createCheckoutFlag(t, h)
 	path := "/api/flags/new-checkout/environments/production"
-	send(t, h, asAdmin(http.MethodPut, path, turkeyOnly))
+	putSetting(t, h, path, turkeyOnly)
 
-	rec := send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true}`))
+	rec := putSetting(t, h, path, `{"enabled":true}`)
 
 	wantStatus(t, rec, http.StatusOK)
 	body := rec.Body.String()
@@ -107,7 +107,7 @@ func TestPutRejectsInvalidRules(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			rec := send(t, h, asAdmin(http.MethodPut, "/api/flags/new-checkout/environments/production", tc.body))
+			rec := putSetting(t, h, "/api/flags/new-checkout/environments/production", tc.body)
 			p := wantProblem(t, rec, http.StatusBadRequest)
 			if !strings.Contains(p.Detail, tc.want) {
 				t.Fatalf("detail = %q, want it to contain %q", p.Detail, tc.want)
@@ -122,16 +122,16 @@ func TestPercentageRolloutOverHTTP(t *testing.T) {
 	path := "/api/flags/new-checkout/environments/production"
 	user := `{"key":"u-1"}`
 
-	send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":10}}}`))
+	putSetting(t, h, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":10}}}`)
 	if got := evaluateUser(t, h, "production", user); got.Value || got.Reason.Kind != eval.ReasonFallthrough {
 		t.Fatalf("u-1 is in bucket 6473, so a 10%% rollout must serve false, got %+v", got)
 	}
 
-	send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":70}}}`))
+	putSetting(t, h, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":70}}}`)
 	if got := evaluateUser(t, h, "production", user); !got.Value {
 		t.Fatalf("u-1 is in bucket 6473, so a 70%% rollout must serve true, got %+v", got)
 	}
 
-	rec := send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":120}}}`))
+	rec := putSetting(t, h, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":120}}}`)
 	wantProblem(t, rec, http.StatusBadRequest)
 }
