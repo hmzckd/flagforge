@@ -62,8 +62,13 @@ func (c Clause) validate() error {
 }
 
 func (s Serve) Validate() error {
-	if s.Value == nil {
-		return errors.New("value is required")
+	switch {
+	case s.Value == nil && s.Rollout == nil:
+		return errors.New("either value or rollout is required")
+	case s.Value != nil && s.Rollout != nil:
+		return errors.New("value and rollout cannot be used together")
+	case s.Rollout != nil && (s.Rollout.TruePercent < 0 || s.Rollout.TruePercent > 100):
+		return fmt.Errorf("rollout.true_percent: must be between 0 and 100, got %d", s.Rollout.TruePercent)
 	}
 	return nil
 }

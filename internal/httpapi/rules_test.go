@@ -94,11 +94,11 @@ func TestPutRejectsInvalidRules(t *testing.T) {
 		},
 		"rule without serve": {
 			`{"enabled":true,"rules":[{"clauses":[{"attribute":"country","op":"in","values":["TR"]}]}]}`,
-			"rules[0].serve: value is required",
+			"rules[0].serve: either value or rollout is required",
 		},
 		"empty fallthrough": {
 			`{"enabled":true,"fallthrough":{}}`,
-			"fallthrough: value is required",
+			"fallthrough: either value or rollout is required",
 		},
 		"unknown field inside a clause": {
 			`{"enabled":true,"rules":[{"clauses":[{"attribute":"country","op":"in","values":["TR"],"negate":true}],"serve":{"value":true}}]}`,
@@ -114,4 +114,24 @@ func TestPutRejectsInvalidRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPercentageRolloutOverHTTP(t *testing.T) {
+	h := newTestHandler(t)
+	createCheckoutFlag(t, h)
+	path := "/api/flags/new-checkout/environments/production"
+	user := `{"key":"u-1"}`
+
+	send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":10}}}`))
+	if got := evaluateUser(t, h, "production", user); got.Value || got.Reason.Kind != eval.ReasonFallthrough {
+		t.Fatalf("u-1 is in bucket 6473, so a 10%% rollout must serve false, got %+v", got)
+	}
+
+	send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":70}}}`))
+	if got := evaluateUser(t, h, "production", user); !got.Value {
+		t.Fatalf("u-1 is in bucket 6473, so a 70%% rollout must serve true, got %+v", got)
+	}
+
+	rec := send(t, h, asAdmin(http.MethodPut, path, `{"enabled":true,"fallthrough":{"rollout":{"true_percent":120}}}`))
+	wantProblem(t, rec, http.StatusBadRequest)
 }

@@ -5,6 +5,8 @@
 package eval
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"strings"
 )
@@ -43,11 +45,27 @@ const (
 )
 
 type Serve struct {
-	Value *bool `json:"value,omitempty"`
+	Value   *bool    `json:"value,omitempty"`
+	Rollout *Rollout `json:"rollout,omitempty"`
+}
+
+type Rollout struct {
+	TruePercent int `json:"true_percent"`
 }
 
 func ServeValue(v bool) Serve {
 	return Serve{Value: &v}
+}
+
+func ServeRollout(truePercent int) Serve {
+	return Serve{Rollout: &Rollout{TruePercent: truePercent}}
+}
+
+const Buckets = 10000
+
+func Bucket(flagKey, userKey string) int {
+	sum := sha256.Sum256([]byte(flagKey + "." + userKey))
+	return int(binary.BigEndian.Uint64(sum[:8]) % Buckets)
 }
 
 type ReasonKind string
@@ -86,10 +104,10 @@ func Evaluate(flag Flag, user User) Result {
 	}
 	for i, rule := range flag.Rules {
 		if rule.matches(user) {
-			return Result{Value: rule.Serve.value(), Reason: Reason{Kind: ReasonRuleMatch, RuleIndex: i}}
+			return Result{Value: rule.Serve.value(flag.Key, user), Reason: Reason{Kind: ReasonRuleMatch, RuleIndex: i}}
 		}
 	}
-	return Result{Value: flag.Fallthrough.value(), Reason: Reason{Kind: ReasonFallthrough}}
+	return Result{Value: flag.Fallthrough.value(flag.Key, user), Reason: Reason{Kind: ReasonFallthrough}}
 }
 
 func (r Rule) matches(user User) bool {
@@ -138,6 +156,12 @@ func anyValue(values []string, match func(string) bool) bool {
 	return false
 }
 
-func (s Serve) value() bool {
-	return s.Value != nil && *s.Value
+func (s Serve) value(flagKey string, user User) bool {
+	switch {
+	case s.Value != nil:
+		return *s.Value
+	case s.Rollout != nil:
+		return Bucket(flagKey, user.Key) < s.Rollout.TruePercent*(Buckets/100)
+	}
+	return false
 }

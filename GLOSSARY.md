@@ -59,6 +59,14 @@ _Avoid_: Condition, predicate
 Serving different values to different users by using rules.
 _Avoid_: Segmentation, personalisation
 
+**Rollout**:
+Serving `true` to a fixed percentage of users and `false` to the rest, with each user always landing on the same side.
+_Avoid_: Canary, gradual release, sampling
+
+**Bucket**:
+The number from 0 to 9,999 that a user always gets for a given flag, used to decide which side of a rollout they are on.
+_Avoid_: Slot, hash, shard
+
 **Fallthrough**:
 What an enabled flag serves to a user that no rule matched.
 _Avoid_: Default rule, else branch

@@ -31,7 +31,10 @@ func TestValidateRulesRejectsBadRules(t *testing.T) {
 		"no values":          {[]Rule{{Clauses: []Clause{{Attribute: "country", Op: OpIn}}, Serve: ServeValue(true)}}, "rules[0].clauses[0].values"},
 		"empty value":        {[]Rule{{Clauses: []Clause{{Attribute: "country", Op: OpIn, Values: []string{""}}}, Serve: ServeValue(true)}}, "rules[0].clauses[0].values[0]"},
 		"no clauses":         {[]Rule{{Serve: ServeValue(true)}}, "rules[0].clauses"},
-		"missing serve":      {[]Rule{{Clauses: []Clause{good}}}, "rules[0].serve: value is required"},
+		"missing serve":      {[]Rule{{Clauses: []Clause{good}}}, "rules[0].serve: either value or rollout is required"},
+		"value and rollout":  {[]Rule{{Clauses: []Clause{good}, Serve: Serve{Value: ServeValue(true).Value, Rollout: &Rollout{TruePercent: 10}}}}, "rules[0].serve: value and rollout cannot be used together"},
+		"percent above 100":  {[]Rule{{Clauses: []Clause{good}, Serve: ServeRollout(101)}}, "rules[0].serve: rollout.true_percent"},
+		"negative percent":   {[]Rule{{Clauses: []Clause{good}, Serve: ServeRollout(-1)}}, "rules[0].serve: rollout.true_percent"},
 		"second rule is bad": {[]Rule{{Clauses: []Clause{good}, Serve: ServeValue(true)}, {Clauses: []Clause{good}}}, "rules[1].serve"},
 		"too many rules":     {make([]Rule, MaxRules+1), "at most 50 rules"},
 	}
@@ -50,6 +53,7 @@ func FuzzValidateRules(f *testing.F) {
 	f.Add(`[{"clauses":[{"attribute":"email","op":"ends_with","values":["@firma.com"]}],"serve":{"value":false}}]`)
 	f.Add(`[{"clauses":[],"serve":{}}]`)
 	f.Add(`[{"clauses":[{"attribute":"","op":"??","values":[""]}]}]`)
+	f.Add(`[{"clauses":[{"attribute":"key","op":"starts_with","values":["u-"]}],"serve":{"rollout":{"true_percent":25}}}]`)
 	f.Add(`[]`)
 	f.Add(`null`)
 
@@ -65,8 +69,8 @@ func FuzzValidateRules(f *testing.F) {
 		}
 
 		for _, rule := range rules {
-			if rule.Serve.Value == nil {
-				t.Fatalf("validator accepted a rule without a value: %s", input)
+			if (rule.Serve.Value == nil) == (rule.Serve.Rollout == nil) {
+				t.Fatalf("validator accepted a rule without exactly one of value and rollout: %s", input)
 			}
 		}
 
