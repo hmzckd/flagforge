@@ -45,6 +45,9 @@ func (s *Store) CreateFlag(ctx context.Context, actor string, nf NewFlag) (Flag,
 		if err != nil {
 			return err
 		}
+		if err := bumpEnvironmentVersions(ctx, tx, nil); err != nil {
+			return err
+		}
 		return writeAudit(ctx, tx, auditEntry{flagID: flagID, actor: actor, action: ActionFlagCreated, after: nf})
 	})
 	if err != nil {
@@ -162,6 +165,9 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, actor, flagKey, envKey st
 			return ErrVersionMismatch
 		}
 		if err != nil {
+			return err
+		}
+		if err := bumpEnvironmentVersions(ctx, tx, &envID); err != nil {
 			return err
 		}
 

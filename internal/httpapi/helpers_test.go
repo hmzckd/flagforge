@@ -98,3 +98,10 @@ func putSetting(t *testing.T, h http.Handler, path, body string) *httptest.Respo
 	req.headers = map[string]string{"If-Match": etag}
 	return send(t, h, req)
 }
+
+func decodeInto(t *testing.T, body string, v any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(body), v); err != nil {
+		t.Fatalf("decode %q: %v", body, err)
+	}
+}

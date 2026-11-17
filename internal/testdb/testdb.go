@@ -15,7 +15,7 @@ import (
 
 var databaseURL string
 
-var dataTables = []string{"flags"}
+var dataTables = []string{"flags", "sdk_keys"}
 
 func Run(m *testing.M) int {
 	ctx := context.Background()

@@ -71,6 +71,28 @@ _Avoid_: Slot, hash, shard
 What an enabled flag serves to a user that no rule matched.
 _Avoid_: Default rule, else branch
 
+### Client applications
+
+**Client application**:
+An application of the team that asks FlagForge which value a flag serves, usually through the SDK.
+_Avoid_: Consumer, service, customer app
+
+**SDK**:
+The library a client application embeds to download flags and evaluate them locally.
+_Avoid_: Client library, agent
+
+**SDK key**:
+A secret that lets a client application read every flag setting of one environment, and nothing else.
+_Avoid_: API key, client token
+
+**Snapshot**:
+Every flag setting of one environment at one environment version.
+_Avoid_: Dump, export, config
+
+**Environment version**:
+A counter on an environment that goes up whenever anything in its snapshot changes.
+_Avoid_: Revision, sequence
+
 ### Change history
 
 **Version**:
