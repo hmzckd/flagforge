@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hmzckd/flagforge/internal/store"
 	"github.com/hmzckd/flagforge/internal/stream"
@@ -24,28 +25,38 @@ func TestMain(m *testing.M) {
 
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
-	h, _ := newTestHandlerWithHub(t, Deps{})
-	return h
+	return newTestInstance(t, Deps{}, 50*time.Millisecond).handler
 }
 
-func newTestHandlerWithHub(t *testing.T, deps Deps) (http.Handler, *stream.Hub) {
+type testInstance struct {
+	handler  http.Handler
+	hub      *stream.Hub
+	listener *stream.Listener
+}
+
+func newTestInstance(t *testing.T, deps Deps, listenerBackoff time.Duration) testInstance {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	st := store.New(testdb.Pool(t))
 	hub := stream.NewHub(st, logger)
 
+	listener := stream.NewListener(testdb.URL(), store.ChangesChannel, hub, logger)
+	listener.MinBackoff = listenerBackoff
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
+	go listener.Run(ctx)
 	t.Cleanup(func() {
 		hub.Close()
 		cancel()
 	})
+	waitFor(t, "the change listener to connect", listener.Listening)
 
 	deps.Logger = logger
 	deps.Store = st
 	deps.Hub = hub
 	deps.AdminKeys = map[string]string{"tester": testAdminKey}
-	return NewHandler(deps), hub
+	return testInstance{handler: NewHandler(deps), hub: hub, listener: listener}
 }
 
 type request struct {

@@ -65,11 +65,28 @@ func (s *Store) Snapshot(ctx context.Context, envKey string) (Snapshot, error) {
 	return snap, tx.Commit(ctx)
 }
 
+const ChangesChannel = "flag_changes"
+
 func bumpEnvironmentVersions(ctx context.Context, tx pgx.Tx, envID *int64) error {
+	var rows pgx.Rows
+	var err error
 	if envID == nil {
-		_, err := tx.Exec(ctx, `UPDATE environments SET version = version + 1`)
+		rows, err = tx.Query(ctx, `UPDATE environments SET version = version + 1 RETURNING key`)
+	} else {
+		rows, err = tx.Query(ctx, `UPDATE environments SET version = version + 1 WHERE id = $1 RETURNING key`, *envID)
+	}
+	if err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE environments SET version = version + 1 WHERE id = $1`, *envID)
-	return err
+	envKeys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+
+	for _, key := range envKeys {
+		if _, err := tx.Exec(ctx, `SELECT pg_notify($1, $2)`, ChangesChannel, key); err != nil {
+			return err
+		}
+	}
+	return nil
 }

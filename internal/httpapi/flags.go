@@ -72,7 +72,6 @@ func (a *api) createFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.hub.NotifyAll()
 	w.Header().Set("Location", "/api/flags/"+flag.Key)
 	writeJSON(w, http.StatusCreated, toFlagResponse(flag))
 }

@@ -67,6 +67,7 @@ func run() error {
 	st := store.New(pool)
 	hub := stream.NewHub(st, logger)
 	go hub.Run(ctx)
+	go stream.NewListener(cfg.DatabaseURL, store.ChangesChannel, hub, logger).Run(ctx)
 
 	srv := &http.Server{
 		Handler: httpapi.NewHandler(httpapi.Deps{

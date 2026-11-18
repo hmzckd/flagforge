@@ -98,10 +98,10 @@ func (c *sseClient) next(t *testing.T, timeout time.Duration) sseEvent {
 
 func startStreamServer(t *testing.T, deps Deps) (*httptest.Server, http.Handler, *stream.Hub) {
 	t.Helper()
-	h, hub := newTestHandlerWithHub(t, deps)
-	srv := httptest.NewServer(h)
+	inst := newTestInstance(t, deps, 50*time.Millisecond)
+	srv := httptest.NewServer(inst.handler)
 	t.Cleanup(srv.Close)
-	return srv, h, hub
+	return srv, inst.handler, inst.hub
 }
 
 func TestStreamSendsTheSnapshotRightAway(t *testing.T) {
