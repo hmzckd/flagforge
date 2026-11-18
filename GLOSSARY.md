@@ -85,6 +85,11 @@ _Avoid_: Client library, agent
 A secret that lets a client application read every flag setting of one environment, and nothing else.
 _Avoid_: API key, client token
 
+**Default value**:
+The value a client application passes with every question and gets back whenever the SDK cannot answer, for example
+before the first snapshot arrives or for an unknown flag.
+_Avoid_: Fallback, fallthrough (which is a different thing)
+
 **Snapshot**:
 Every flag setting of one environment at one environment version.
 _Avoid_: Dump, export, config
