@@ -1,8 +1,10 @@
 // Package sdk lets a Go application read FlagForge flags.
 //
 // The client downloads every flag of one environment when it starts and then
-// answers Bool calls from memory, without any network call. When FlagForge
-// cannot be reached, Bool returns the default value the caller passed in.
+// answers Bool calls from memory, without any network call. A background
+// stream keeps that copy up to date. When FlagForge cannot be reached, Bool
+// keeps using the last flags it saw, or the default value the caller passed
+// in if it never saw any.
 package sdk
 
 import (
@@ -14,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,11 +29,16 @@ type Config struct {
 	BaseURL     string
 	SDKKey      string
 	InitTimeout time.Duration
-	HTTPClient  *http.Client
 	Logger      *slog.Logger
+
+	ReconnectMinDelay time.Duration
+	ReconnectMaxDelay time.Duration
+	StreamIdleTimeout time.Duration
 }
 
 var ErrNotInitialized = errors.New("flagforge: could not load flags, serving default values")
+
+var errKeyRejected = errors.New("the SDK key was rejected")
 
 type snapshot struct {
 	version int64
@@ -38,35 +46,61 @@ type snapshot struct {
 }
 
 type Client struct {
-	cfg      Config
-	snapshot atomic.Pointer[snapshot]
+	cfg       Config
+	transport *http.Transport
+	http      *http.Client
+	snapshot  atomic.Pointer[snapshot]
+
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	closeOnce sync.Once
 }
 
 func New(ctx context.Context, cfg Config) (*Client, error) {
-	if cfg.InitTimeout <= 0 {
-		cfg.InitTimeout = 2 * time.Second
-	}
-	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{}
-	}
-	if cfg.Logger == nil {
-		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	c := &Client{cfg: cfg}
+	cfg = withDefaults(cfg)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	c := &Client{cfg: cfg, transport: transport, http: &http.Client{Transport: transport}}
 
 	if cfg.BaseURL == "" || cfg.SDKKey == "" {
 		return c, fmt.Errorf("%w: BaseURL and SDKKey are required", ErrNotInitialized)
 	}
 
-	initCtx, cancel := context.WithTimeout(ctx, cfg.InitTimeout)
-	defer cancel()
-	snap, err := c.fetchSnapshot(initCtx)
-	if err != nil {
-		return c, fmt.Errorf("%w: %v", ErrNotInitialized, err)
+	initCtx, cancelInit := context.WithTimeout(ctx, cfg.InitTimeout)
+	snap, initErr := c.fetchSnapshot(initCtx)
+	cancelInit()
+	if initErr == nil {
+		c.snapshot.Store(snap)
 	}
-	c.snapshot.Store(snap)
+
+	streamCtx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	c.wg.Add(1)
+	go c.runStream(streamCtx)
+
+	if initErr != nil {
+		return c, fmt.Errorf("%w: %v", ErrNotInitialized, initErr)
+	}
 	return c, nil
+}
+
+func withDefaults(cfg Config) Config {
+	if cfg.InitTimeout <= 0 {
+		cfg.InitTimeout = 2 * time.Second
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	if cfg.ReconnectMinDelay <= 0 {
+		cfg.ReconnectMinDelay = time.Second
+	}
+	if cfg.ReconnectMaxDelay <= 0 {
+		cfg.ReconnectMaxDelay = 30 * time.Second
+	}
+	if cfg.StreamIdleTimeout <= 0 {
+		cfg.StreamIdleTimeout = 45 * time.Second
+	}
+	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+	return cfg
 }
 
 func (c *Client) Bool(flagKey string, user User, defaultValue bool) bool {
@@ -99,6 +133,16 @@ func (c *Client) Version() int64 {
 }
 
 func (c *Client) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
+		c.wg.Wait()
+		c.transport.CloseIdleConnections()
+	})
 	return nil
 }
 
@@ -128,7 +172,7 @@ func (c *Client) fetchSnapshot(ctx context.Context) (*snapshot, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.SDKKey)
 
-	resp, err := c.cfg.HTTPClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +180,7 @@ func (c *Client) fetchSnapshot(ctx context.Context) (*snapshot, error) {
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, errors.New("the SDK key was rejected")
+		return nil, errKeyRejected
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}

@@ -90,6 +90,11 @@ The value a client application passes with every question and gets back whenever
 before the first snapshot arrives or for an unknown flag.
 _Avoid_: Fallback, fallthrough (which is a different thing)
 
+**Last known flags**:
+The newest snapshot an SDK has received. The SDK keeps answering from it while FlagForge cannot be reached, and
+replaces it as soon as the flag stream delivers a newer one.
+_Avoid_: Cache, stale flags
+
 **Snapshot**:
 Every flag setting of one environment at one environment version.
 _Avoid_: Dump, export, config

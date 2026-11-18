@@ -1,8 +1,11 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,14 +31,16 @@ const turkeySnapshot = `{
 
 type fakeServer struct {
 	*httptest.Server
-	hits atomic.Int64
+	fetches atomic.Int64
 }
 
 func newFakeServer(t *testing.T, handler http.HandlerFunc) *fakeServer {
 	t.Helper()
 	f := &fakeServer{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.hits.Add(1)
+		if r.URL.Path == "/sdk/v1/flags" {
+			f.fetches.Add(1)
+		}
 		handler(w, r)
 	}))
 	t.Cleanup(f.Close)
@@ -44,24 +49,49 @@ func newFakeServer(t *testing.T, handler http.HandlerFunc) *fakeServer {
 
 func serveSnapshot(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/sdk/v1/flags" || r.Header.Get("Authorization") != "Bearer "+testKey {
+		if r.Header.Get("Authorization") != "Bearer "+testKey {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(body))
+		switch r.URL.Path {
+		case "/sdk/v1/flags":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		case "/sdk/v1/stream":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, sseSnapshot(body))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		default:
+			http.NotFound(w, r)
+		}
 	}
+}
+
+func sseSnapshot(body string) string {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(body)); err != nil {
+		compact.Reset()
+		compact.WriteString(body)
+	}
+	return "event: snapshot\ndata: " + compact.String() + "\n\n"
+}
+
+func newClient(t *testing.T, cfg Config, wantReady bool) *Client {
+	t.Helper()
+	client, err := New(context.Background(), cfg)
+	t.Cleanup(func() { client.Close() })
+	if wantReady && err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return client
 }
 
 func TestBoolEvaluatesLocallyAfterStartup(t *testing.T) {
 	srv := newFakeServer(t, serveSnapshot(turkeySnapshot))
 
-	client, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: testKey})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer client.Close()
-	hitsAfterStart := srv.hits.Load()
+	client := newClient(t, Config{BaseURL: srv.URL, SDKKey: testKey}, true)
+	fetchesAfterStart := srv.fetches.Load()
 
 	tr := User{Key: "u-1", Attributes: map[string]string{"country": "TR"}}
 	de := User{Key: "u-2", Attributes: map[string]string{"country": "DE"}}
@@ -74,8 +104,8 @@ func TestBoolEvaluatesLocallyAfterStartup(t *testing.T) {
 		}
 	}
 
-	if got := srv.hits.Load(); got != hitsAfterStart {
-		t.Fatalf("Bool made %d network calls, want 0", got-hitsAfterStart)
+	if got := srv.fetches.Load(); got != fetchesAfterStart {
+		t.Fatalf("Bool made %d network calls, want 0", got-fetchesAfterStart)
 	}
 	if !client.Ready() || client.Version() != 7 {
 		t.Fatalf("Ready = %v, Version = %d", client.Ready(), client.Version())
@@ -86,10 +116,7 @@ func TestBoolUsesTheSameBucketsAsTheServer(t *testing.T) {
 	srv := newFakeServer(t, serveSnapshot(`{"version": 1, "flags": {
 		"new-checkout": {"enabled": true, "rules": [], "fallthrough": {"rollout": {"true_percent": 50}}}
 	}}`))
-	client, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: testKey})
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newClient(t, Config{BaseURL: srv.URL, SDKKey: testKey}, true)
 
 	if client.Bool("new-checkout", User{Key: "u-1"}, true) {
 		t.Fatal("u-1 is in bucket 6473 of new-checkout, so a 50% rollout must serve false")
@@ -101,7 +128,7 @@ func TestBoolUsesTheSameBucketsAsTheServer(t *testing.T) {
 
 func TestUnknownFlagReturnsTheDefault(t *testing.T) {
 	srv := newFakeServer(t, serveSnapshot(turkeySnapshot))
-	client, _ := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: testKey})
+	client := newClient(t, Config{BaseURL: srv.URL, SDKKey: testKey}, true)
 
 	if !client.Bool("does-not-exist", User{Key: "u-1"}, true) || client.Bool("does-not-exist", User{Key: "u-1"}, false) {
 		t.Fatal("unknown flag must return the default value")
@@ -115,6 +142,7 @@ func TestServerDownServesDefaults(t *testing.T) {
 
 	start := time.Now()
 	client, err := New(context.Background(), Config{BaseURL: url, SDKKey: testKey})
+	t.Cleanup(func() { client.Close() })
 
 	if !errors.Is(err, ErrNotInitialized) {
 		t.Fatalf("err = %v, want ErrNotInitialized", err)
@@ -146,6 +174,7 @@ func TestSlowServerDoesNotBlockStartupForLong(t *testing.T) {
 	start := time.Now()
 	client, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: testKey, InitTimeout: 200 * time.Millisecond})
 	elapsed := time.Since(start)
+	t.Cleanup(func() { client.Close() })
 
 	if !errors.Is(err, ErrNotInitialized) {
 		t.Fatalf("err = %v, want ErrNotInitialized", err)
@@ -160,7 +189,8 @@ func TestSlowServerDoesNotBlockStartupForLong(t *testing.T) {
 
 func TestRejectedKey(t *testing.T) {
 	srv := newFakeServer(t, serveSnapshot(turkeySnapshot))
-	_, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: "wrong"})
+	client, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: "wrong"})
+	t.Cleanup(func() { client.Close() })
 	if !errors.Is(err, ErrNotInitialized) || !strings.Contains(err.Error(), "SDK key was rejected") {
 		t.Fatalf("err = %v", err)
 	}
@@ -169,6 +199,7 @@ func TestRejectedKey(t *testing.T) {
 func TestBrokenSnapshotServesDefaults(t *testing.T) {
 	srv := newFakeServer(t, serveSnapshot(`{"flags": [1, 2, 3]}`))
 	client, err := New(context.Background(), Config{BaseURL: srv.URL, SDKKey: testKey})
+	t.Cleanup(func() { client.Close() })
 	if !errors.Is(err, ErrNotInitialized) {
 		t.Fatalf("err = %v", err)
 	}
@@ -179,6 +210,7 @@ func TestBrokenSnapshotServesDefaults(t *testing.T) {
 
 func TestMissingConfig(t *testing.T) {
 	client, err := New(context.Background(), Config{})
+	t.Cleanup(func() { client.Close() })
 	if !errors.Is(err, ErrNotInitialized) || client == nil {
 		t.Fatalf("client = %v, err = %v", client, err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/hmzckd/flagforge/internal/testdb"
+	"github.com/hmzckd/flagforge/sdk"
 )
 
 func TestChangeOnOneInstanceReachesStreamsOnTheOther(t *testing.T) {
@@ -31,6 +32,38 @@ func TestChangeOnOneInstanceReachesStreamsOnTheOther(t *testing.T) {
 		t.Fatalf("instance B streamed %s", e.data)
 	}
 	t.Logf("change made on A reached a stream on B in %v", time.Since(start))
+}
+
+func TestSDKOnOneInstanceSeesAChangeMadeOnTheOther(t *testing.T) {
+	a := newTestInstance(t, Deps{}, 50*time.Millisecond)
+	b := newTestInstance(t, Deps{}, 50*time.Millisecond)
+	serverB := httptest.NewServer(b.handler)
+	t.Cleanup(serverB.Close)
+
+	createCheckoutFlag(t, a.handler)
+	key := createSDKKey(t, a.handler, "production").Key
+	client, err := sdk.New(context.Background(), sdk.Config{BaseURL: serverB.URL, SDKKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	versionBefore := client.Version()
+	user := sdk.User{Key: "u-1"}
+	if client.Bool("new-checkout", user, true) {
+		t.Fatal("new-checkout starts off, want false")
+	}
+
+	start := time.Now()
+	putSetting(t, a.handler, "/api/flags/new-checkout/environments/production", `{"enabled":true}`)
+	waitFor(t, "the SDK to see the change", func() bool { return client.Bool("new-checkout", user, false) })
+
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("change took %v to reach the SDK, want under 1s", elapsed)
+	}
+	if client.Version() <= versionBefore {
+		t.Fatalf("Version = %d, want more than %d", client.Version(), versionBefore)
+	}
+	t.Logf("change made on A reached an SDK connected to B in %v", time.Since(start))
 }
 
 func TestNewFlagOnOneInstanceReachesEveryEnvironmentOnTheOther(t *testing.T) {

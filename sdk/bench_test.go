@@ -22,6 +22,7 @@ func BenchmarkBoolLocal(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer client.Close()
 
 	for b.Loop() {
 		client.Bool("new-checkout", benchUser, false)
