@@ -95,6 +95,7 @@ func (a *api) putSetting(w http.ResponseWriter, r *http.Request) {
 		a.storeError(w, r, err)
 		return
 	}
+	a.hub.Notify(setting.Environment)
 	w.Header().Set("ETag", etag(setting.Version))
 	writeJSON(w, http.StatusOK, toSettingResponse(setting))
 }

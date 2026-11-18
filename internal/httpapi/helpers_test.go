@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hmzckd/flagforge/internal/store"
+	"github.com/hmzckd/flagforge/internal/stream"
 	"github.com/hmzckd/flagforge/internal/testdb"
 )
 
@@ -22,11 +24,28 @@ func TestMain(m *testing.M) {
 
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
-	return NewHandler(Deps{
-		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Store:     store.New(testdb.Pool(t)),
-		AdminKeys: map[string]string{"tester": testAdminKey},
+	h, _ := newTestHandlerWithHub(t, Deps{})
+	return h
+}
+
+func newTestHandlerWithHub(t *testing.T, deps Deps) (http.Handler, *stream.Hub) {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	st := store.New(testdb.Pool(t))
+	hub := stream.NewHub(st, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go hub.Run(ctx)
+	t.Cleanup(func() {
+		hub.Close()
+		cancel()
 	})
+
+	deps.Logger = logger
+	deps.Store = st
+	deps.Hub = hub
+	deps.AdminKeys = map[string]string{"tester": testAdminKey}
+	return NewHandler(deps), hub
 }
 
 type request struct {

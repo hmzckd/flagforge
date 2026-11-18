@@ -89,6 +89,11 @@ _Avoid_: API key, client token
 Every flag setting of one environment at one environment version.
 _Avoid_: Dump, export, config
 
+**Flag stream**:
+A long-lived connection on which FlagForge pushes a new snapshot to a client application every time its environment
+changes.
+_Avoid_: Websocket, feed, subscription
+
 **Environment version**:
 A counter on an environment that goes up whenever anything in its snapshot changes.
 _Avoid_: Revision, sequence

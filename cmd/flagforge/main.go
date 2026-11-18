@@ -17,6 +17,7 @@ import (
 	"github.com/hmzckd/flagforge/internal/config"
 	"github.com/hmzckd/flagforge/internal/httpapi"
 	"github.com/hmzckd/flagforge/internal/store"
+	"github.com/hmzckd/flagforge/internal/stream"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -63,15 +64,21 @@ func run() error {
 		return fmt.Errorf("listen on %s: %w", cfg.Addr, err)
 	}
 
+	st := store.New(pool)
+	hub := stream.NewHub(st, logger)
+	go hub.Run(ctx)
+
 	srv := &http.Server{
 		Handler: httpapi.NewHandler(httpapi.Deps{
 			Logger:    logger,
-			Store:     store.New(pool),
+			Store:     st,
+			Hub:       hub,
 			AdminKeys: cfg.AdminKeys,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	srv.RegisterOnShutdown(hub.Close)
 
 	return serve(ctx, logger, srv, listener)
 }
