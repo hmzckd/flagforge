@@ -1,0 +1,11 @@
+.git
+.github
+.idea
+.vscode
+docs
+*.md
+.env
+/flagforge
+/flagforge.exe
+*.test
+*.out
